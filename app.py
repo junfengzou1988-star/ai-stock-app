@@ -26,22 +26,17 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.title("📈 AI 股票自上而下全景诊断大屏 (实时数据+中文搜索+量化)")
+st.title("📈 AI 股票自上而下全景诊断大屏 (实时数据+公告超链接+量化)")
 
 # -----------------------------------------------------------------------------
-# 2. 智能股票搜索与智能代码映射引擎 (支持中文、英文、拼音、代码)
+# 2. 智能股票搜索与智能代码映射引擎
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def resolve_stock_symbol(query_str):
-    """
-    智能将用户输入的 中文(如'信维通信') / 拼音 / 英文 / 纯数字代码 转换为标准 yfinance 格式代码，
-    并提取最准确的【中文名称】。
-    """
     q = query_str.strip()
     if not q:
         return "300136.SZ", "信维通信"
 
-    # 常见热门标的预置快速映射表
     PRESET_MAP = {
         "信维通信": ("300136.SZ", "信维通信"),
         "中际旭创": ("300308.SZ", "中际旭创"),
@@ -61,20 +56,17 @@ def resolve_stock_symbol(query_str):
     if q in PRESET_MAP:
         return PRESET_MAP[q]
 
-    # 如果输入的是标准 yfinance 格式 (如 300136.SZ 或 NVDA)
     if re.match(r'^\d{6}\.(SZ|SS)$', q, re.IGNORECASE) or q.isalpha():
         ticker_code = q.upper()
         chinese_name = fetch_chinese_name(ticker_code)
         return ticker_code, chinese_name
 
-    # 如果输入的是纯 6 位 A 股代码 (如 300136)
     if re.match(r'^\d{6}$', q):
         suffix = ".SS" if q.startswith(('60', '68')) else ".SZ"
         ticker_code = f"{q}{suffix}"
         chinese_name = fetch_chinese_name(ticker_code)
         return ticker_code, chinese_name
 
-    # 模糊搜索 API：请求新浪财经/腾讯接口进行中文名称与拼音匹配
     try:
         url = f"https://suggest3.sinajs.cn/suggest/type=key&key={requests.utils.quote(q)}"
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -84,7 +76,6 @@ def resolve_stock_symbol(query_str):
             match = re.search(r'"([^"]+)"', resp.text)
             if match and match.group(1):
                 first_item = match.group(1).split(';')[0].split(',')
-                # 新浪返回结构: [拼音, 类型, 代码, 完整数字代码, 中文名]
                 if len(first_item) >= 5:
                     raw_code = first_item[3]
                     cn_name = first_item[4]
@@ -97,11 +88,9 @@ def resolve_stock_symbol(query_str):
     except:
         pass
 
-    # 默认兜底
     return q.upper(), q
 
 def fetch_chinese_name(ticker):
-    """专门获取 A 股/港美股的准确中文简称"""
     clean_code = ticker.replace('.SZ', '').replace('.SS', '')
     if ticker.endswith(('.SZ', '.SS')):
         try:
@@ -114,13 +103,13 @@ def fetch_chinese_name(ticker):
                 data_str = resp.text.split('="')[1]
                 fields = data_str.split(',')
                 if len(fields) > 0 and fields[0]:
-                    return fields[0]  # 返回中文股票名称
+                    return fields[0]
         except:
             pass
     return ticker
 
 # -----------------------------------------------------------------------------
-# 3. 侧边栏交互组件 (支持输入中文/英文/拼音/代码)
+# 3. 侧边栏交互组件
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.header("⚙️ 系统设置")
@@ -130,27 +119,26 @@ with st.sidebar:
     st.markdown("---")
     st.header("📌 输入分析标的")
     search_query = st.text_input(
-        "股票名称/代码搜索 (支持: 信维通信 / XWTX / 300136 / NVDA)",
-        value="信维通信"
+        "股票名称/代码搜索 (支持: 信维通信 / 中际旭创 / 300136 / NVDA)",
+        value="中际旭创"
     )
     
-    # 智能解析输入的搜索关键词
     target_symbol, target_chinese_name = resolve_stock_symbol(search_query)
     
-    cost_input = st.text_input("持仓成本价 (未买入填 0)", value="78.56")
+    cost_input = st.text_input("持仓成本价 (未买入填 0)", value="0")
     try:
         cost_price = float(cost_input.replace(',', '.'))
     except:
         cost_price = 0.0
         
-    shares_input = st.text_input("持仓股数", value="7100")
+    shares_input = st.text_input("持仓股数", value="0")
     try:
         hold_shares = float(shares_input.replace(',', '.'))
     except:
         hold_shares = 0.0
 
 # -----------------------------------------------------------------------------
-# 4. 实时直连新闻与官方公告抓取引擎
+# 4. 实时直连新闻与官方公告抓取引擎 (带精准 Markdown 链接)
 # -----------------------------------------------------------------------------
 def fetch_company_news_and_announcements(ticker):
     clean_code = ticker.replace('.SZ', '').replace('.SS', '')
@@ -168,14 +156,20 @@ def fetch_company_news_and_announcements(ticker):
                 links = datelist.find_all('a')
                 for a in links[:6]:
                     title = a.text.strip()
+                    href = a.get('href', '')
                     if title and len(title) > 5:
-                        news_items.append(f"- [公司公告/重大资讯] {title}")
+                        if href and not href.startswith('http'):
+                            href = f"https://vip.stock.finance.sina.com.cn{href}"
+                        news_items.append(f"- [{title}]({href})")
         except:
             pass
             
         if news_items:
             return "\n".join(news_items)
-        return "- [重大跟踪] 关注美 FCC 政策审查应对、越南海外工厂扩产及 1.6T 光模块/卫星器件客户送样进度。"
+        
+        # 带有真实跳转链接的默认追踪线索
+        sina_news_url = f"https://vip.stock.finance.sina.com.cn/corp/go.php/vCB_AllNews/stockid/{clean_code}.phtml"
+        return f"- [点击查看该股票官方公告与重大跟踪全文]({sina_news_url})\n- [点击查看中际旭创/信维通信美 FCC 政策审查与 1.6T 光模块扩产进度]({sina_news_url})"
     else:
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
@@ -187,15 +181,22 @@ def fetch_company_news_and_announcements(ticker):
                 news_table = soup.find(id='news-table')
                 if news_table:
                     rows = news_table.find_all('tr')
-                    items = [f"- [美股官方/机构电报] {row.find('a').text.strip()}" for row in rows[:6] if row.find('a')]
+                    items = []
+                    for row in rows[:6]:
+                        a = row.find('a')
+                        if a:
+                            title = a.text.strip()
+                            href = a.get('href', '#')
+                            items.append(f"- [{title}]({href})")
                     if items:
                         return "\n".join(items)
         except:
             pass
-        return "- [重大跟踪] 关注华尔街机构电报、SEC 监管文件、美联储降息与大厂 CAPEX 资本开支指引。"
+        finviz_url = f"https://finviz.com/quote.ashx?t={ticker}"
+        return f"- [点击直达华尔街电报与 SEC 官方监管文件页面]({finviz_url})"
 
 # -----------------------------------------------------------------------------
-# 5. 专业买方量化引擎 (绝对实时数据直连 + 严密相对点位校验算法)
+# 5. 专业买方量化引擎
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def fetch_comprehensive_stock_data(ticker):
@@ -333,7 +334,7 @@ def fetch_comprehensive_stock_data(ticker):
         return None
 
 # -----------------------------------------------------------------------------
-# 6. 主界面渲染 (显示中文股票名称)
+# 6. 主界面渲染
 # -----------------------------------------------------------------------------
 if target_symbol:
     stock_info = fetch_comprehensive_stock_data(target_symbol)
@@ -348,7 +349,6 @@ if target_symbol:
         is_us_stock = not target_symbol.endswith(('.SZ', '.SS'))
         currency_symbol = "$" if is_us_stock else "¥"
         
-        # 顶部展示【中文名字 + 股票代码】
         st.subheader(f"📌 当前分析标的：{target_chinese_name} ({target_symbol})")
         st.caption("实时最新价格 (Real-time Market Data)")
         st.markdown(f"# {currency_symbol}{latest_price:.2f}")
@@ -372,8 +372,8 @@ if target_symbol:
         fcol5.metric("机构目标均价", f"{currency_symbol}{stock_info['target_mean']}")
         fcol6.metric("机构综合评级", stock_info['recommendation'])
         
-        st.markdown("##### 📰 最新公司新闻动态与官方公告")
-        st.info(stock_info['news_str'])
+        st.markdown("##### 📰 最新公司新闻动态与官方公告 (点击可直接跳转查看全文)")
+        st.markdown(stock_info['news_str'])
         
         st.markdown("---")
         
