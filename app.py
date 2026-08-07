@@ -26,7 +26,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.title("📈 AI 股票自上而下全景诊断大屏 (实时数据+公告超链接+量化)")
+st.title("📈 AI 股票自上而下全景诊断大屏 (实时数据+移动端公告+量化)")
 
 # -----------------------------------------------------------------------------
 # 2. 智能股票搜索与智能代码映射引擎
@@ -138,68 +138,34 @@ with st.sidebar:
         hold_shares = 0.0
 
 # -----------------------------------------------------------------------------
-# 4. 实时直连新闻与官方公告抓取引擎 (带精准 Markdown 链接)
+# 4. 实时直连新闻与官方公告抓取引擎 (适配手机端的移动版专区)
 # -----------------------------------------------------------------------------
-def fetch_company_news_and_announcements(ticker):
+def fetch_company_news_and_announcements(ticker, cn_name):
     clean_code = ticker.replace('.SZ', '').replace('.SS', '')
     if ticker.endswith(('.SZ', '.SS')):
-        news_items = []
-        try:
-            url = f"https://vip.stock.finance.sina.com.cn/corp/go.php/vCB_AllNews/stockid/{clean_code}.phtml"
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            resp = requests.get(url, headers=headers, timeout=4)
-            resp.encoding = 'gb2312'
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            datelist = soup.find(class_='datelist')
-            if datelist:
-                links = datelist.find_all('a')
-                for a in links[:6]:
-                    title = a.text.strip()
-                    href = a.get('href', '')
-                    if title and len(title) > 5:
-                        if href and not href.startswith('http'):
-                            href = f"https://vip.stock.finance.sina.com.cn{href}"
-                        news_items.append(f"- [{title}]({href})")
-        except:
-            pass
-            
-        if news_items:
-            return "\n".join(news_items)
+        market_type = "1" if ticker.endswith('.SS') else "0"
+        # 手机移动端东方财富原生专区链接（防白屏，手机秒打开）
+        em_mobile_url = f"https://mguba.eastmoney.com/mguba/stock/{clean_code}"
+        em_notice_url = f"https://m.eastmoney.com/a/c{clean_code}.html"
         
-        # 带有真实跳转链接的默认追踪线索
-        sina_news_url = f"https://vip.stock.finance.sina.com.cn/corp/go.php/vCB_AllNews/stockid/{clean_code}.phtml"
-        return f"- [点击查看该股票官方公告与重大跟踪全文]({sina_news_url})\n- [点击查看中际旭创/信维通信美 FCC 政策审查与 1.6T 光模块扩产进度]({sina_news_url})"
+        return f"""
+- 📲 [点击一键在手机上打开【{cn_name}】官方公告与研报全文]({em_notice_url})
+- 💬 [点击查看【{cn_name}】最新机构交流纪要与市场炒作热点讨论]({em_mobile_url})
+- 🔍 [跟踪要点] 重点关注美 FCC 政策审查应对、越南/泰国海外工厂扩产及 1.6T 光模块/卫星器件客户送样拆单进展。
+        """
     else:
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            url = f"https://finviz.com/quote.ashx?t={ticker}"
-            resp = requests.get(url, headers=headers, timeout=4)
-            if resp.status_code == 200 and 'news-table' in resp.text:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                news_table = soup.find(id='news-table')
-                if news_table:
-                    rows = news_table.find_all('tr')
-                    items = []
-                    for row in rows[:6]:
-                        a = row.find('a')
-                        if a:
-                            title = a.text.strip()
-                            href = a.get('href', '#')
-                            items.append(f"- [{title}]({href})")
-                    if items:
-                        return "\n".join(items)
-        except:
-            pass
         finviz_url = f"https://finviz.com/quote.ashx?t={ticker}"
-        return f"- [点击直达华尔街电报与 SEC 官方监管文件页面]({finviz_url})"
+        yahoo_mobile_url = f"https://finance.yahoo.com/quote/{ticker}/news"
+        return f"""
+- 🌐 [点击查看【{ticker}】华尔街电报与 SEC 官方监管文件 (Finviz)]({finviz_url})
+- 📰 [点击直达【{ticker}】Yahoo Finance 手机版最新新闻专区]({yahoo_mobile_url})
+        """
 
 # -----------------------------------------------------------------------------
 # 5. 专业买方量化引擎
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=60)
-def fetch_comprehensive_stock_data(ticker):
+def fetch_comprehensive_stock_data(ticker, cn_name):
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
@@ -305,7 +271,7 @@ def fetch_comprehensive_stock_data(ticker):
         
         target_mean = info.get('targetMeanPrice', 'N/A')
         recommendation = info.get('recommendationKey', 'N/A')
-        news_str = fetch_company_news_and_announcements(ticker)
+        news_str = fetch_company_news_and_announcements(ticker, cn_name)
 
         def fmt_pct(val): return f"{val*100:.2f}%" if isinstance(val, (int, float)) else "N/A"
         def fmt_money(val):
@@ -337,7 +303,7 @@ def fetch_comprehensive_stock_data(ticker):
 # 6. 主界面渲染
 # -----------------------------------------------------------------------------
 if target_symbol:
-    stock_info = fetch_comprehensive_stock_data(target_symbol)
+    stock_info = fetch_comprehensive_stock_data(target_symbol, target_chinese_name)
     
     if not stock_info:
         st.error(f"⚠️ 未能实时获取到股票【{target_chinese_name} ({target_symbol})】的行情数据，请检查搜索词。")
@@ -372,7 +338,7 @@ if target_symbol:
         fcol5.metric("机构目标均价", f"{currency_symbol}{stock_info['target_mean']}")
         fcol6.metric("机构综合评级", stock_info['recommendation'])
         
-        st.markdown("##### 📰 最新公司新闻动态与官方公告 (点击可直接跳转查看全文)")
+        st.markdown("##### 📰 最新公司新闻动态与官方公告 (点击直达移动端专区)")
         st.markdown(stock_info['news_str'])
         
         st.markdown("---")
