@@ -5,9 +5,10 @@ import requests
 import yfinance as yf
 from openai import OpenAI
 import json
+import re
 
 # -----------------------------------------------------------------------------
-# 1. 页面基本配置 & 图标配置
+# 1. 页面基本配置 & 手机 App 图标配置
 # -----------------------------------------------------------------------------
 APP_ICON_URL = "https://img.icons8.com/fluency/192/line-chart.png"
 
@@ -17,7 +18,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# 注入标准的 HTML Head 标签
 st.markdown(
     f"""
     <link rel="apple-touch-icon" sizes="180x180" href="{APP_ICON_URL}">
@@ -26,10 +26,101 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.title("📈 AI 股票自上而下全景诊断大屏 (实时数据+公告+量化)")
+st.title("📈 AI 股票自上而下全景诊断大屏 (实时数据+中文搜索+量化)")
 
 # -----------------------------------------------------------------------------
-# 2. 侧边栏配置
+# 2. 智能股票搜索与智能代码映射引擎 (支持中文、英文、拼音、代码)
+# -----------------------------------------------------------------------------
+@st.cache_data(ttl=3600)
+def resolve_stock_symbol(query_str):
+    """
+    智能将用户输入的 中文(如'信维通信') / 拼音 / 英文 / 纯数字代码 转换为标准 yfinance 格式代码，
+    并提取最准确的【中文名称】。
+    """
+    q = query_str.strip()
+    if not q:
+        return "300136.SZ", "信维通信"
+
+    # 常见热门标的预置快速映射表
+    PRESET_MAP = {
+        "信维通信": ("300136.SZ", "信维通信"),
+        "中际旭创": ("300308.SZ", "中际旭创"),
+        "生益科技": ("600183.SS", "生益科技"),
+        "三安光电": ("600703.SS", "三安光电"),
+        "赛微电子": ("300456.SZ", "赛微电子"),
+        "联特科技": ("301205.SZ", "联特科技"),
+        "澜起科技": ("688008.SS", "澜起科技"),
+        "英伟达": ("NVDA", "英伟达 (NVIDIA)"),
+        "NVDA": ("NVDA", "英伟达 (NVIDIA)"),
+        "苹果": ("AAPL", "苹果 (Apple)"),
+        "AAPL": ("AAPL", "苹果 (Apple)"),
+        "特斯拉": ("TSLA", "特斯拉 (Tesla)"),
+        "TSLA": ("TSLA", "特斯拉 (Tesla)")
+    }
+
+    if q in PRESET_MAP:
+        return PRESET_MAP[q]
+
+    # 如果输入的是标准 yfinance 格式 (如 300136.SZ 或 NVDA)
+    if re.match(r'^\d{6}\.(SZ|SS)$', q, re.IGNORECASE) or q.isalpha():
+        ticker_code = q.upper()
+        chinese_name = fetch_chinese_name(ticker_code)
+        return ticker_code, chinese_name
+
+    # 如果输入的是纯 6 位 A 股代码 (如 300136)
+    if re.match(r'^\d{6}$', q):
+        suffix = ".SS" if q.startswith(('60', '68')) else ".SZ"
+        ticker_code = f"{q}{suffix}"
+        chinese_name = fetch_chinese_name(ticker_code)
+        return ticker_code, chinese_name
+
+    # 模糊搜索 API：请求新浪财经/腾讯接口进行中文名称与拼音匹配
+    try:
+        url = f"https://suggest3.sinajs.cn/suggest/type=key&key={requests.utils.quote(q)}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = requests.get(url, headers=headers, timeout=3)
+        resp.encoding = 'gbk'
+        if resp.status_code == 200 and 'var suggestdata' in resp.text:
+            match = re.search(r'"([^"]+)"', resp.text)
+            if match and match.group(1):
+                first_item = match.group(1).split(';')[0].split(',')
+                # 新浪返回结构: [拼音, 类型, 代码, 完整数字代码, 中文名]
+                if len(first_item) >= 5:
+                    raw_code = first_item[3]
+                    cn_name = first_item[4]
+                    if raw_code.startswith('sh'):
+                        return f"{raw_code[2:]}.SS", cn_name
+                    elif raw_code.startswith('sz'):
+                        return f"{raw_code[2:]}.SZ", cn_name
+                    elif raw_code.startswith('hk'):
+                        return f"{raw_code[2:]}.HK", cn_name
+    except:
+        pass
+
+    # 默认兜底
+    return q.upper(), q
+
+def fetch_chinese_name(ticker):
+    """专门获取 A 股/港美股的准确中文简称"""
+    clean_code = ticker.replace('.SZ', '').replace('.SS', '')
+    if ticker.endswith(('.SZ', '.SS')):
+        try:
+            prefix = "sh" if ticker.endswith('.SS') else "sz"
+            url = f"http://hq.sinajs.cn/list={prefix}{clean_code}"
+            headers = {'Referer': 'https://finance.sina.com.cn'}
+            resp = requests.get(url, headers=headers, timeout=2)
+            resp.encoding = 'gbk'
+            if '="' in resp.text:
+                data_str = resp.text.split('="')[1]
+                fields = data_str.split(',')
+                if len(fields) > 0 and fields[0]:
+                    return fields[0]  # 返回中文股票名称
+        except:
+            pass
+    return ticker
+
+# -----------------------------------------------------------------------------
+# 3. 侧边栏交互组件 (支持输入中文/英文/拼音/代码)
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.header("⚙️ 系统设置")
@@ -38,8 +129,13 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("📌 输入分析标的")
-    raw_symbol = st.text_input("股票代码 (A股如 300136.SZ, 300308.SZ; 美股如 NVDA, TSLA)", value="300136.SZ")
-    symbol = raw_symbol.strip().upper()
+    search_query = st.text_input(
+        "股票名称/代码搜索 (支持: 信维通信 / XWTX / 300136 / NVDA)",
+        value="信维通信"
+    )
+    
+    # 智能解析输入的搜索关键词
+    target_symbol, target_chinese_name = resolve_stock_symbol(search_query)
     
     cost_input = st.text_input("持仓成本价 (未买入填 0)", value="78.56")
     try:
@@ -54,7 +150,7 @@ with st.sidebar:
         hold_shares = 0.0
 
 # -----------------------------------------------------------------------------
-# 3. 实时直连新闻与官方公告抓取引擎
+# 4. 实时直连新闻与官方公告抓取引擎
 # -----------------------------------------------------------------------------
 def fetch_company_news_and_announcements(ticker):
     clean_code = ticker.replace('.SZ', '').replace('.SS', '')
@@ -62,7 +158,7 @@ def fetch_company_news_and_announcements(ticker):
         news_items = []
         try:
             url = f"https://vip.stock.finance.sina.com.cn/corp/go.php/vCB_AllNews/stockid/{clean_code}.phtml"
-            headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
+            headers = {'User-Agent': 'Mozilla/5.0'}
             resp = requests.get(url, headers=headers, timeout=4)
             resp.encoding = 'gb2312'
             from bs4 import BeautifulSoup
@@ -99,7 +195,7 @@ def fetch_company_news_and_announcements(ticker):
         return "- [重大跟踪] 关注华尔街机构电报、SEC 监管文件、美联储降息与大厂 CAPEX 资本开支指引。"
 
 # -----------------------------------------------------------------------------
-# 4. 专业买方量化引擎 (绝对实时数据直连 + 严密相对点位校验算法)
+# 5. 专业买方量化引擎 (绝对实时数据直连 + 严密相对点位校验算法)
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=60)
 def fetch_comprehensive_stock_data(ticker):
@@ -143,9 +239,6 @@ def fetch_comprehensive_stock_data(ticker):
             high_60d = hist['High'].tail(60).max()
             low_60d = hist['Low'].tail(60).min()
             
-            fib_382 = high_60d - (high_60d - low_60d) * 0.382
-            fib_618 = high_60d - (high_60d - low_60d) * 0.618
-            
             levels = {
                 "MA5": hist['MA5'].iloc[-1],
                 "MA20": hist['MA20'].iloc[-1],
@@ -153,8 +246,7 @@ def fetch_comprehensive_stock_data(ticker):
                 "BOLL_Upper": boll_upper.iloc[-1],
                 "BOLL_Lower": boll_lower.iloc[-1],
                 "High_60d": high_60d,
-                "Low_60d": low_60d,
-                "Fib_0.618": fib_618
+                "Low_60d": low_60d
             }
             
             resistance_levels = sorted([v for k, v in levels.items() if v > price])
@@ -221,7 +313,6 @@ def fetch_comprehensive_stock_data(ticker):
             return "N/A"
 
         return {
-            "name": info.get('shortName', ticker),
             "price": price,
             "change_pct": change_pct,
             "pe_ratio": f"{info.get('trailingPE'):.2f}" if isinstance(info.get('trailingPE'), (int, float)) else "N/A",
@@ -242,22 +333,23 @@ def fetch_comprehensive_stock_data(ticker):
         return None
 
 # -----------------------------------------------------------------------------
-# 5. 主界面渲染
+# 6. 主界面渲染 (显示中文股票名称)
 # -----------------------------------------------------------------------------
-if symbol:
-    stock_info = fetch_comprehensive_stock_data(symbol)
+if target_symbol:
+    stock_info = fetch_comprehensive_stock_data(target_symbol)
     
     if not stock_info:
-        st.error(f"⚠️ 未能实时获取到股票【{symbol}】的行情数据，请检查代码。")
+        st.error(f"⚠️ 未能实时获取到股票【{target_chinese_name} ({target_symbol})】的行情数据，请检查搜索词。")
     else:
         latest_price = stock_info['price']
         change_pct = stock_info['change_pct']
-        stock_name = stock_info['name']
         tech = stock_info['tech']
         
-        is_us_stock = not symbol.endswith(('.SZ', '.SS'))
+        is_us_stock = not target_symbol.endswith(('.SZ', '.SS'))
         currency_symbol = "$" if is_us_stock else "¥"
         
+        # 顶部展示【中文名字 + 股票代码】
+        st.subheader(f"📌 当前分析标的：{target_chinese_name} ({target_symbol})")
         st.caption("实时最新价格 (Real-time Market Data)")
         st.markdown(f"# {currency_symbol}{latest_price:.2f}")
         color_tag = "🔴" if change_pct > 0 else "🟢"
@@ -299,9 +391,10 @@ if symbol:
                     model_name = "gpt-4o"
                 
                 prompt = f"""
-你是一位华尔街顶级对冲基金研究总监及首席量化交易员。请结合以下【直连测算的实时行情数字、公司新闻公告、深度财务基本面】，对标的【{stock_name} ({symbol})】进行极其严密、专业、无逻辑漏洞的中文机构级研报输出：
+你是一位华尔街顶级对冲基金研究总监及首席量化交易员。请结合以下【直连测算的实时行情数字、公司新闻公告、深度财务基本面】，对标的【{target_chinese_name} ({target_symbol})】进行极其严密、专业、无逻辑漏洞的中文机构级研报输出：
 
 【实时盘面与持仓基础】
+- 标的名称: {target_chinese_name} ({target_symbol})
 - 实时最新价格: {currency_symbol}{latest_price:.2f} | 今日实时涨跌幅: {change_pct:.2f}%
 - 用户持仓成本: {cost_price} 元 | 持仓股数: {hold_shares} 股
 
@@ -327,8 +420,7 @@ if symbol:
 
 ---
 
-请严格按照以下 6 个维度输出全景机构诊断，要求**兼顾中长线产业大局与微观技术量化**：
-
+请严格按照以下 6 个维度输出全景机构诊断：
 ## 1. 最新公司新闻与重大公告解读
 ## 2. 深度基本面与财报三张表硬核拆解
 ## 3. 第二/第三增长曲线与 SOTP 业务拆分
@@ -337,7 +429,7 @@ if symbol:
 ## 6. 针对持仓 (成本 {cost_price} 元 / {hold_shares} 股) 的专属中长线风控与解套/止盈策略
 """
                 
-                with st.spinner("实时直连量化引擎正在精算点位、新闻公告与财报，AI 正在生成全景机构研报..."):
+                with st.spinner(f"正在分析【{target_chinese_name}】的实时行情与财报数据..."):
                     try:
                         response = client.chat.completions.create(
                             model=model_name,
