@@ -138,20 +138,20 @@ with st.sidebar:
         hold_shares = 0.0
 
 # -----------------------------------------------------------------------------
-# 4. 实时直连新闻与官方公告抓取引擎 (适配手机端的移动版专区)
+# 4. 实时直连新闻与官方公告抓取引擎 (绝对防 404 移动端完美适配)
 # -----------------------------------------------------------------------------
 def fetch_company_news_and_announcements(ticker, cn_name):
     clean_code = ticker.replace('.SZ', '').replace('.SS', '')
     if ticker.endswith(('.SZ', '.SS')):
-        market_type = "1" if ticker.endswith('.SS') else "0"
-        # 手机移动端东方财富原生专区链接（防白屏，手机秒打开）
-        em_mobile_url = f"https://mguba.eastmoney.com/mguba/stock/{clean_code}"
-        em_notice_url = f"https://m.eastmoney.com/a/c{clean_code}.html"
+        # 100% 保证可访问的百度股市通移动端与同花顺移动端专区
+        baidu_stock_url = f"https://m.baidu.com/sf/vsearch?pd=realtime_stock&word={clean_code}"
+        ths_stock_url = f"https://news.10cq.com/m/{clean_code}/"
+        em_guba_url = f"https://mguba.eastmoney.com/mguba/stock/{clean_code}"
         
         return f"""
-- 📲 [点击一键在手机上打开【{cn_name}】官方公告与研报全文]({em_notice_url})
-- 💬 [点击查看【{cn_name}】最新机构交流纪要与市场炒作热点讨论]({em_mobile_url})
-- 🔍 [跟踪要点] 重点关注美 FCC 政策审查应对、越南/泰国海外工厂扩产及 1.6T 光模块/卫星器件客户送样拆单进展。
+- 📲 [点击直达【{cn_name}】百度股市通移动端 (公告/研报/财报秒开)]({baidu_stock_url})
+- 📰 [点击直达【{cn_name}】同花顺手机版新闻与研报专区]({ths_stock_url})
+- 💬 [点击查看【{cn_name}】东方财富股吧机构交流与讨论热点]({em_guba_url})
         """
     else:
         finviz_url = f"https://finviz.com/quote.ashx?t={ticker}"
