@@ -7,25 +7,23 @@ from openai import OpenAI
 import json
 
 # -----------------------------------------------------------------------------
-# 1. 页面基本配置 & 手机桌面 App 图标/Favicon 配置
+# 1. 页面基本配置 & 图标配置
 # -----------------------------------------------------------------------------
 APP_ICON_URL = "https://img.icons8.com/fluency/192/line-chart.png"
 
 st.set_page_config(
     page_title="AI 股票自上而下全景诊断大屏",
-    page_icon=APP_ICON_URL,  # 浏览器标签页小图标
+    page_icon=APP_ICON_URL,
     layout="wide"
 )
 
-# 注入 iOS Apple-Touch-Icon 标签（确保手机保存到桌面时显示精美 App 图标）
+# 注入标准的 HTML Head 标签
 st.markdown(
     f"""
-    <head>
-        <link rel="apple-touch-icon" sizes="180x180" href="{APP_ICON_URL}">
-        <link rel="icon" type="image/png" sizes="32x32" href="{APP_ICON_URL}">
-    </head>
+    <link rel="apple-touch-icon" sizes="180x180" href="{APP_ICON_URL}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{APP_ICON_URL}">
     """,
-    unsafe_allow_javascript=True
+    unsafe_allow_html=True
 )
 
 st.title("📈 AI 股票自上而下全景诊断大屏 (实时数据+公告+量化)")
