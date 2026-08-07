@@ -7,10 +7,28 @@ from openai import OpenAI
 import json
 
 # -----------------------------------------------------------------------------
-# 1. 页面基本配置 (保持极简高颜值 UI)
+# 1. 页面基本配置 & 手机桌面 App 图标/Favicon 配置
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="AI 股票全方位诊断系统", layout="wide")
-st.title("📈 AI 股票自上而下全方位诊断大屏")
+APP_ICON_URL = "https://img.icons8.com/fluency/192/line-chart.png"
+
+st.set_page_config(
+    page_title="AI 股票自上而下全景诊断大屏",
+    page_icon=APP_ICON_URL,  # 浏览器标签页小图标
+    layout="wide"
+)
+
+# 注入 iOS Apple-Touch-Icon 标签（确保手机保存到桌面时显示精美 App 图标）
+st.markdown(
+    f"""
+    <head>
+        <link rel="apple-touch-icon" sizes="180x180" href="{APP_ICON_URL}">
+        <link rel="icon" type="image/png" sizes="32x32" href="{APP_ICON_URL}">
+    </head>
+    """,
+    unsafe_allow_javascript=True
+)
+
+st.title("📈 AI 股票自上而下全景诊断大屏 (实时数据+公告+量化)")
 
 # -----------------------------------------------------------------------------
 # 2. 侧边栏配置
@@ -22,23 +40,23 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("📌 输入分析标的")
-    raw_symbol = st.text_input("股票代码 (A股如 300308.SZ; 美股如 NVDA, TSLA)", value="300308.SZ")
+    raw_symbol = st.text_input("股票代码 (A股如 300136.SZ, 300308.SZ; 美股如 NVDA, TSLA)", value="300136.SZ")
     symbol = raw_symbol.strip().upper()
     
-    cost_input = st.text_input("持仓成本价 (未买入填 0)", value="565.72")
+    cost_input = st.text_input("持仓成本价 (未买入填 0)", value="78.56")
     try:
         cost_price = float(cost_input.replace(',', '.'))
     except:
         cost_price = 0.0
         
-    shares_input = st.text_input("持仓股数", value="500")
+    shares_input = st.text_input("持仓股数", value="7100")
     try:
         hold_shares = float(shares_input.replace(',', '.'))
     except:
         hold_shares = 0.0
 
 # -----------------------------------------------------------------------------
-# 3. 公司最新新闻与官方公告直连抓取引擎
+# 3. 实时直连新闻与官方公告抓取引擎
 # -----------------------------------------------------------------------------
 def fetch_company_news_and_announcements(ticker):
     clean_code = ticker.replace('.SZ', '').replace('.SS', '')
@@ -46,7 +64,7 @@ def fetch_company_news_and_announcements(ticker):
         news_items = []
         try:
             url = f"https://vip.stock.finance.sina.com.cn/corp/go.php/vCB_AllNews/stockid/{clean_code}.phtml"
-            headers = {'User-Agent': 'Mozilla/5.0'}
+            headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
             resp = requests.get(url, headers=headers, timeout=4)
             resp.encoding = 'gb2312'
             from bs4 import BeautifulSoup
@@ -63,7 +81,7 @@ def fetch_company_news_and_announcements(ticker):
             
         if news_items:
             return "\n".join(news_items)
-        return "- [重大跟踪] 关注美 FCC 政策审查应对、泰国产能二期投产及 1.6T 光模块客户送样进度。"
+        return "- [重大跟踪] 关注美 FCC 政策审查应对、越南海外工厂扩产及 1.6T 光模块/卫星器件客户送样进度。"
     else:
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
@@ -80,12 +98,12 @@ def fetch_company_news_and_announcements(ticker):
                         return "\n".join(items)
         except:
             pass
-        return "- [重大跟踪] 关注华尔街机构电报、SEC 监管文件、美联储降息与行业 CAPEX 指引。"
+        return "- [重大跟踪] 关注华尔街机构电报、SEC 监管文件、美联储降息与大厂 CAPEX 资本开支指引。"
 
 # -----------------------------------------------------------------------------
-# 4. 专业买方量化引擎 (包含相对点位严格校验 + 黄金分割 + 支撑压力计算)
+# 4. 专业买方量化引擎 (绝对实时数据直连 + 严密相对点位校验算法)
 # -----------------------------------------------------------------------------
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def fetch_comprehensive_stock_data(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -127,12 +145,9 @@ def fetch_comprehensive_stock_data(ticker):
             high_60d = hist['High'].tail(60).max()
             low_60d = hist['Low'].tail(60).min()
             
-            # 斐波那契黄金分割位 (0.382 / 0.5 / 0.618)
             fib_382 = high_60d - (high_60d - low_60d) * 0.382
-            fib_500 = high_60d - (high_60d - low_60d) * 0.500
             fib_618 = high_60d - (high_60d - low_60d) * 0.618
             
-            # --- 核心改动：买方量化严格区分压力位与支撑位 ---
             levels = {
                 "MA5": hist['MA5'].iloc[-1],
                 "MA20": hist['MA20'].iloc[-1],
@@ -141,11 +156,9 @@ def fetch_comprehensive_stock_data(ticker):
                 "BOLL_Lower": boll_lower.iloc[-1],
                 "High_60d": high_60d,
                 "Low_60d": low_60d,
-                "Fib_0.382": fib_382,
                 "Fib_0.618": fib_618
             }
             
-            # 区分上方的压力位 (> 现价) 与下方的支撑位 (< 现价)
             resistance_levels = sorted([v for k, v in levels.items() if v > price])
             support_levels = sorted([v for k, v in levels.items() if v < price], reverse=True)
             
@@ -155,15 +168,14 @@ def fetch_comprehensive_stock_data(ticker):
             sup1 = f"{support_levels[0]:.2f}" if support_levels else f"{price * 0.95:.2f}"
             sup2 = f"{support_levels[1]:.2f}" if len(support_levels) > 1 else f"{low_60d:.2f}"
             
-            # 止跌特征自动检测
             signals = []
             if price > hist['MA20'].iloc[-1] and hist['Close'].iloc[-2] <= hist['MA20'].iloc[-2]:
-                signals.append("放量突破 20 日生命线 (MA20)")
+                signals.append("突破 20 日生命线 (MA20)")
             if macd_hist.iloc[-1] > 0 and macd_hist.iloc[-2] <= 0:
-                signals.append("MACD 低位金叉成立")
+                signals.append("MACD 零轴上方二次金叉成立")
             if rsi14.iloc[-1] < 35:
-                signals.append("RSI 进入超卖区间（触底反弹概率极高）")
-            stop_decline_signals = "；".join(signals) if signals else "目前处于高位箱体筹码交换整固期，需等待缩量企稳信号。"
+                signals.append("RSI 进入超卖反弹区")
+            stop_decline_signals = "；".join(signals) if signals else "高位箱体筹码交换整固中"
             
             tech_data = {
                 "ma5": f"{hist['MA5'].iloc[-1]:.2f}",
@@ -180,8 +192,6 @@ def fetch_comprehensive_stock_data(ticker):
                 "vol_ratio": f"{vol_ratio:.2f}倍",
                 "high_60d": f"{high_60d:.2f}",
                 "low_60d": f"{low_60d:.2f}",
-                "fib_382": f"{fib_382:.2f}",
-                "fib_618": f"{fib_618:.2f}",
                 "res1": res1,
                 "res2": res2,
                 "sup1": sup1,
@@ -191,7 +201,6 @@ def fetch_comprehensive_stock_data(ticker):
         else:
             tech_data = {"res1": "N/A", "res2": "N/A", "sup1": "N/A", "sup2": "N/A", "stop_decline_signals": "数据不足"}
 
-        # 财报数据
         q_financials = stock.quarterly_financials
         yoy_rev_growth, qoq_rev_growth = "N/A", "N/A"
         if not q_financials.empty and 'Total Revenue' in q_financials.index:
@@ -235,13 +244,13 @@ def fetch_comprehensive_stock_data(ticker):
         return None
 
 # -----------------------------------------------------------------------------
-# 5. 主界面渲染 (保持你最赞赏的极简视觉 UI)
+# 5. 主界面渲染
 # -----------------------------------------------------------------------------
 if symbol:
     stock_info = fetch_comprehensive_stock_data(symbol)
     
     if not stock_info:
-        st.error(f"⚠️ 未能获取到股票【{symbol}】的数据。")
+        st.error(f"⚠️ 未能实时获取到股票【{symbol}】的行情数据，请检查代码。")
     else:
         latest_price = stock_info['price']
         change_pct = stock_info['change_pct']
@@ -251,8 +260,7 @@ if symbol:
         is_us_stock = not symbol.endswith(('.SZ', '.SS'))
         currency_symbol = "$" if is_us_stock else "¥"
         
-        # 1. 最新价格与持仓卡片
-        st.caption("最新价格")
+        st.caption("实时最新价格 (Real-time Market Data)")
         st.markdown(f"# {currency_symbol}{latest_price:.2f}")
         color_tag = "🔴" if change_pct > 0 else "🟢"
         st.markdown(f"##### {color_tag} {change_pct:+.2f}%")
@@ -260,11 +268,10 @@ if symbol:
         if cost_price > 0:
             profit_pct = ((latest_price - cost_price) / cost_price) * 100
             total_profit = (latest_price - cost_price) * hold_shares
-            st.caption(f"持仓成本: {currency_symbol}{cost_price:.2f} | 股数: {hold_shares} | 浮盈率: {profit_pct:+.2f}% | 浮盈额: {currency_symbol}{total_profit:+,.2f}")
+            st.caption(f"持仓成本: {currency_symbol}{cost_price:.2f} | 股数: {hold_shares} | 实时浮盈率: {profit_pct:+.2f}% | 实时浮盈额: {currency_symbol}{total_profit:+,.2f}")
 
         st.markdown("---")
 
-        # 2. 关键财务报表 & 机构预期仪表盘 (经典六大卡片)
         st.markdown("##### 📊 关键财务报表 & 机构预期仪表盘")
         fcol1, fcol2, fcol3, fcol4, fcol5, fcol6 = st.columns(6)
         
@@ -275,13 +282,11 @@ if symbol:
         fcol5.metric("机构目标均价", f"{currency_symbol}{stock_info['target_mean']}")
         fcol6.metric("机构综合评级", stock_info['recommendation'])
         
-        # 3. 前端界面显示公司最新新闻与公告
         st.markdown("##### 📰 最新公司新闻动态与官方公告")
         st.info(stock_info['news_str'])
         
         st.markdown("---")
         
-        # 4. AI 深度研报生成模块
         st.subheader("🤖 AI 专属分析师深度诊断")
         
         if st.button("🚀 生成全方位分析报告"):
@@ -296,60 +301,45 @@ if symbol:
                     model_name = "gpt-4o"
                 
                 prompt = f"""
-你是一位华尔街顶级对冲基金研究总监及首席量化交易员。请结合以下【真实算出的技术点位、公司新闻公告、深度财务基本面】，对标的【{stock_name} ({symbol})】进行极其严密、专业、无逻辑漏洞的中文机构级研报输出：
+你是一位华尔街顶级对冲基金研究总监及首席量化交易员。请结合以下【直连测算的实时行情数字、公司新闻公告、深度财务基本面】，对标的【{stock_name} ({symbol})】进行极其严密、专业、无逻辑漏洞的中文机构级研报输出：
 
-【盘面与持仓基础】
-- 当前最新价格: {currency_symbol}{latest_price:.2f} | 今日涨跌幅: {change_pct:.2f}%
+【实时盘面与持仓基础】
+- 实时最新价格: {currency_symbol}{latest_price:.2f} | 今日实时涨跌幅: {change_pct:.2f}%
 - 用户持仓成本: {cost_price} 元 | 持仓股数: {hold_shares} 股
 
-【公司最新新闻动态与官方公告】
+【最新公司新闻动态与官方公告】
 {stock_info['news_str']}
 
-【买方量化引擎算出的绝对精准支撑位与压力位 (严格经过 >现价 与 <现价 逻辑校验)】
-- 当前股价: {currency_symbol}{latest_price:.2f}
-- **算法精算第一支撑位 (比现价低的最近强支撑)**: {currency_symbol}{tech['sup1']}
-- **算法精算第二支撑位 (极限下轨/黄金分割/近期低点)**: {currency_symbol}{tech['sup2']}
-- **算法精算第一压力位 (比现价高最近强阻力/均线压制)**: {currency_symbol}{tech['res1']}
-- **算法精算第二压力位 (突破后阻力/前高/BOLL上轨)**: {currency_symbol}{tech['res2']}
+【买方量化引擎测算的绝对精准支撑位与压力位 (严格经过 >实时价 与 <实时价 逻辑校验)】
+- 当前实时股价: {currency_symbol}{latest_price:.2f}
+- **算法精算第一支撑位 (低于现价的最近强支撑平台)**: {currency_symbol}{tech['sup1']}
+- **算法精算第二支撑位 (极限下轨/黄金分割/60日黄金底座)**: {currency_symbol}{tech['sup2']}
+- **算法精算第一压力位 (高于现价的最近强阻力/筹码密集位)**: {currency_symbol}{tech['res1']}
+- **算法精算第二压力位 (突破后历史高点/保本解套线/BOLL上轨)**: {currency_symbol}{tech['res2']}
 
 【后台量化指标细节】
-- 均线: MA5 ({tech['ma5']}) | MA20 ({tech['ma20']}) | MA60 ({tech['ma60']})
-- 动能与通道: MACD 柱 ({tech['macd_hist']}) | RSI14 ({tech['rsi14']}) | BOLL上轨 ({tech['boll_upper']}) | BOLL下轨 ({tech['boll_lower']}) | 黄金分割 0.618 ({tech['fib_618']})
-- 量价与止跌信号: 量比 ({tech['vol_ratio']}) | 自动化止跌特征检测: {tech['stop_decline_signals']}
+- 均线: MA5 ({tech['ma5']}) | MA20 ({tech['ma20']}) | MA60 ({tech['ma60']}) | MA200 ({tech['ma200']})
+- 动能与通道: MACD 柱 ({tech['macd_hist']}) | RSI14 ({tech['rsi14']}) | BOLL上轨 ({tech['boll_upper']}) | BOLL下轨 ({tech['boll_lower']})
+- 量价与止跌特征: 量比 ({tech['vol_ratio']}) | 自动检测特征: {tech['stop_decline_signals']}
 
 【深度财报与基本面】
 - 营收规模与动能: 总营收 {stock_info['total_revenue']} | YoY 同比 {stock_info['revenue_growth_yoy']} | QoQ 环比 {stock_info['revenue_growth_qoq']}
 - 盈利质量: 毛利率 {stock_info['gross_margins']} | 净利率 {stock_info['profit_margins']} | 自由现金流 {stock_info['free_cashflow']}
-- 估值与机构预期: TTM PE {stock_info['pe_ratio']} | Forward PE {stock_info['forward_pe']} | 机构目标价 {currency_symbol}{stock_info['target_mean']}
+- 估值与机构预期: TTM PE {stock_info['pe_ratio']} | Forward PE {stock_info['forward_pe']} | 机构一致目标价 {currency_symbol}{stock_info['target_mean']}
 
 ---
 
-请严格按照以下 6 个维度输出全景机构诊断，**要求技术面部分严格按照我给你的算法点位分析，绝对不许把压在头顶的均线说成支撑位！**：
+请严格按照以下 6 个维度输出全景机构诊断，要求**兼顾中长线产业大局与微观技术量化**：
 
 ## 1. 最新公司新闻与重大公告解读
-- 深度点评抓取到的【公司最新新闻公告】，评估美 FCC 政策审查风险、泰国产能规避防线及 800G/1.6T 光模块订单进度。
-
-## 2. 深度基本面与财报硬核拆解
-- 结合 YoY 同比 {stock_info['revenue_growth_yoy']} 与 QoQ 环比 {stock_info['revenue_growth_qoq']} 评估光模块出货动能，拆解毛利率 {stock_info['gross_margins']} 与自由现金流 {stock_info['free_cashflow']} 健康度。
-
-## 3. 第二增长曲线与 SOTP 业务拆分
-- 评估 1.6T 光模块、硅光（Silicon Photonics）与 CPO 技术的落地进度与竞争壁垒。
-
-## 4. 机构博弈与估值合理性
-- 对比机构目标价 {currency_symbol}{stock_info['target_mean']} compared to 当前股价的溢价空间，评估 Forward PE {stock_info['forward_pe']} 的消化速度。
-
-## 5. 专家级技术面量价、止跌信号与【精算支撑压力位】（重点专业拆解）
-- **量价关系**：结合量比 ({tech['vol_ratio']}) 分析当前是“无量缩量整固”还是“放量突破/抛压”。
-- **止跌与反弹确认条件**：结合 RSI ({tech['rsi14']})、MACD 柱 ({tech['macd_hist']}) 与形态特征（{tech['stop_decline_signals']}），给出明确的右侧止跌确认信号。
-- **精准支撑位与压力位拆解（绝对严密逻辑）**：
-  * **第一支撑位 ({currency_symbol}{tech['sup1']}) 与 第二支撑位 ({currency_symbol}{tech['sup2']})**：阐述下方强支撑逻辑（例如触及 BOLL 下轨或黄金分割线附近的抄底买盘）。
-  * **第一压力位 ({currency_symbol}{tech['res1']}) 与 第二压力位 ({currency_symbol}{tech['res2']})**：阐述上方抛压逻辑（例如受上方 MA20/MA60 均线套牢盘盖顶压制）。
-
-## 6. 针对持仓 (成本 {cost_price} 元 / {hold_shares} 股) 的专属量化风控策略
-- 结合用户 **+62.6% 的浮盈安全垫**，基于下方第一支撑位 ({currency_symbol}{tech['sup1']}) 设立**移动动态锁盈位**，并给出第一/第二分批止盈目标价（锚定第一/第二压力位）。
+## 2. 深度基本面与财报三张表硬核拆解
+## 3. 第二/第三增长曲线与 SOTP 业务拆分
+## 4. 机构博弈与估值合理性 (PEG 视角)
+## 5. 专家级技术面量价与【绝对精算支撑压力位】
+## 6. 针对持仓 (成本 {cost_price} 元 / {hold_shares} 股) 的专属中长线风控与解套/止盈策略
 """
                 
-                with st.spinner("买方量化引擎正在校验相对点位、黄金分割与新闻公告，生成全景机构研报..."):
+                with st.spinner("实时直连量化引擎正在精算点位、新闻公告与财报，AI 正在生成全景机构研报..."):
                     try:
                         response = client.chat.completions.create(
                             model=model_name,
