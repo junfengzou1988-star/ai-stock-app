@@ -8,9 +8,9 @@ import json
 import re
 
 # -----------------------------------------------------------------------------
-# 1. 页面基本配置 & 手机 App 图标配置
+# 1. 页面基本配置 & 手机 App 图标配置 (全新高高清量化图标)
 # -----------------------------------------------------------------------------
-APP_ICON_URL = "https://img.icons8.com/fluency/192/line-chart.png"
+APP_ICON_URL = "https://img.icons8.com/color/192/bullish--v1.png"
 
 st.set_page_config(
     page_title="AI 股票自上而下全景诊断大屏",
@@ -138,14 +138,13 @@ with st.sidebar:
         hold_shares = 0.0
 
 # -----------------------------------------------------------------------------
-# 4. 原生新闻与官方公告抓取引擎 (直接在界面内列出，无需跳转)
+# 4. 原生新闻与官方公告抓取引擎
 # -----------------------------------------------------------------------------
 def fetch_company_news_native(ticker, cn_name):
     clean_code = ticker.replace('.SZ', '').replace('.SS', '')
     news_list = []
     
     if ticker.endswith(('.SZ', '.SS')):
-        # 直接调用东财/新浪官方数据 API 抓取新闻标题与时间
         try:
             url = f"https://search-api-web.eastmoney.com/search/jsonp?cb=func&param=%7B%22uid%22%3A%22%22%2C%22keyword%22%3A%22{clean_code}%22%2C%22type%22%3A%5B%22cmsArticleWebOld%22%5D%2C%22client%22%3A%22web%22%2C%22pageNum%22%3A1%2C%22pageSize%22%3A5%7D"
             resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
